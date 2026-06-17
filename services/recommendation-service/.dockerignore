@@ -1,0 +1,9 @@
+.venv
+pycache
+*.pyc
+.env
+.git
+.gitignore
+Dockerfile
+steps.txt
+.pytest_cache
