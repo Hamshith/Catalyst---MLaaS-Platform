@@ -1,4 +1,5 @@
-version: '1.0'
+version: "3.9"
+
 services:
   rabbitmq:
     image: rabbitmq:3-management
@@ -9,6 +10,13 @@ services:
       - rabbitmq_data:/var/lib/rabbitmq
     networks:
       - ml-platform
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
   minio:
     image: minio/minio
     ports:
@@ -22,6 +30,32 @@ services:
       - minio_data:/data
     networks:
       - ml-platform
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - ml-platform
+    entrypoint: >
+      /bin/sh -c "
+      until mc alias set myminio http://minio:9000 minioadmin minioadmin; do
+        echo 'Waiting for MinIO...';
+        sleep 2;
+      done;
+
+      mc mb myminio/datasets --ignore-existing;
+      mc mb myminio/ml-models --ignore-existing;
+
+      exit 0;
+      "
 
   user-service:
     image: hamshith/user-service:latest
@@ -37,7 +71,8 @@ services:
     env_file:
       - "./services/training-orchestrator/.env"
     depends_on:
-      - rabbitmq
+      rabbitmq:
+        condition: service_healthy
     networks:
       - ml-platform
 
@@ -55,8 +90,10 @@ services:
     env_file:
       - "./services/preprocessing-service/.env"
     depends_on:
-      - minio
-      - rabbitmq
+      minio-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy  
     networks:
       - ml-platform
 
@@ -65,9 +102,10 @@ services:
     ports:
       - "8003:8003"
     env_file:
-      - "./services/model-registry-service/.env"
+      - "./services/model-registery-service/.env"
     depends_on:
-      - minio
+      minio-init:
+        condition: service_completed_successfully
     networks:
       - ml-platform
 
@@ -76,8 +114,10 @@ services:
     env_file:
       - "./services/medium-model-training-service/.env"
     depends_on:
-      - minio
-      - rabbitmq
+      minio-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
     networks:
       - ml-platform
 
@@ -86,8 +126,10 @@ services:
     env_file:
       - "./services/low-model-training-service/.env"
     depends_on:
-      - minio
-      - rabbitmq
+      minio-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
     networks:
       - ml-platform
 
@@ -96,8 +138,10 @@ services:
     env_file:
       - "./services/high-model-training-service/.env"
     depends_on:
-      - minio
-      - rabbitmq  
+      minio-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
     networks:
       - ml-platform
 
@@ -108,11 +152,13 @@ services:
     env_file:
       - "./services/dataset-service/.env"
     depends_on:
-      - minio
-      - rabbitmq
+      minio-init:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
     networks:
       - ml-platform
-  
+
   credit-service:
     image: hamshith/credit-service:latest
     ports:
@@ -127,7 +173,7 @@ services:
     ports:
       - "5173:5173"
     env_file:
-      - "./services/frontend/.env"
+      - "./frontend/.env"
     depends_on:
       - user-service
       - dataset-service
@@ -144,7 +190,3 @@ volumes:
 networks:
   ml-platform:
     driver: bridge
-  
-
-    
-    
